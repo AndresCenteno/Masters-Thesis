@@ -6,6 +6,7 @@ from scipy.sparse import csgraph
 from scipy.linalg import expm
 from tqdm.notebook import tqdm
 from functools import reduce
+import networkx as nx
 
 # Lipshitz constant C1
 def lipschitz_c1(L, tau):
@@ -253,29 +254,9 @@ def learn_heat(X,
     
     return result
 
-def create_signal_and_graph(N,M,tau_ground,se=0.1):
-    """
-    N = number of nodes for graph
-    M = number of signals
-    tau_ground = number of diffusion rates to do superposition
-    """
-    # create RBF graph as described in paper
-    sigma = 0.5
-    kappa = 0.75
-    # generate coordinates of vertices uniformly at random in [0,1]^2
-    coord = np.random.rand(N,2)
-    # if d(i,j) <= kappa
-    # set weights to W(i,j) = exp(-d(i,j)^2/(2*sigma^2))
-    # calloc of Laplacian
-    L_ground = np.zeros([N,N])
-    for i in range(N):
-        for j in range(N):
-            dist = np.linalg.norm(coord[i,:]-coord[j,:],2)
-            if dist < kappa:
-                L_ground[i,j] = np.exp(-dist**2/(2*sigma**2))
-    # this way if i=j, L[i,i] = 1 (Standard Laplacian) and tr(L) = N as said
-    # in paper
-    # CREATING SIGNAL as in Graph_learning.ipynb
+def create_signal(N=20,p=0.2,tau_ground=[2.5,4],M=100,se=0.1):
+    rg = nx.fast_gnp_random_graph(N,p)
+    L_ground = nx.laplacian_matrix(rg).toarray()
     D_ground = D(L_ground, tau_ground)
     random_atoms = []
     random_hs = []
@@ -289,32 +270,34 @@ def create_signal_and_graph(N,M,tau_ground,se=0.1):
         H_ground[atom,m] = random_hs[m]
     X_clean = np.matrix(xs).T
     X = X_clean + np.sqrt(se)*np.random.randn(X_clean.shape[0],X_clean.shape[1])
-    return X, L_ground, H_ground
+    return X, L_ground, H_ground, tau_ground
 
-def laplacian_to_adjacency(L):
-    W = -L
-    np.fill_diagonal(L,0)
-    return W
-
-def heat_scores(L_learned,L_ground,num_trials=10):
-    N = L_learned.shape[0]
-    W_learned, W_ground = laplacian_to_adjacency(L_learned), laplacian_to_adjacency(L_ground)
-    W_learned = W_learned/np.max(W_learned) # biggest entry should be almost 1
-    threshold_vec = np.linspace(0,1.001,num_trials)
-    scores_vec = np.zeros((num_trials,3)) # precision and recall two column vectors
-    tri_ground = np.tril(W_ground,k=-1).flatten()
-    tri_ground[tri_ground!=0] = 1
-    tri_learned = np.tril(W_learned,k=-1).flatten()
-    i=0
-    for threshold in threshold_vec:
-        tri_temp = tri_learned
-        tri_temp[tri_temp<threshold] = 0
-        tri_temp[tri_temp>0] = 1
-        scores_vec[i,0] = skmet.precision_score(tri_ground,tri_temp)
-        scores_vec[i,1] = skmet.recall_score(tri_ground,tri_temp)
-        scores_vec[i,2] = skmet.f1_score(tri_ground,tri_temp,)
-        i += 1
-        # f1measure
-    plt.plot(scores_vec[:,0],scores_vec[:,1])
-    return scores_vec
-
+def heat_scores(L1,L2,num_trials=10):
+    # L1 is the learned Laplacian, L2 the ground one
+    precisions = []
+    recalls = []
+    # vectorize matrices
+    # there needs to be some kind of normalization
+    W1 = np.tril(-L1,k=-1).flatten()
+    W1[W1<0]=0
+    W2 = np.tril(-L2,k=-1).flatten()
+    W2 = (W2>0).astype(int)
+    # normalization
+    W1 = W1/np.max(W1)
+    thresholds = np.linspace(0,1,num_trials)
+    for threshold in thresholds:
+        W_temp = (W1>=threshold).astype(int)
+        tp = np.sum((W_temp==1)&(W2==1))
+        fp = np.sum((W_temp==1)&(W2==0))
+        fn = np.sum((W_temp==0)&(W2==1))
+        if tp+fp==0:
+            precision = 1
+        else:
+            precision = tp/(tp+fp)
+        if tp+fn==0:
+            recall = 1
+        else:
+            recall = tp/(tp+fn)
+        precisions.append(precision)
+        recalls.append(recall)
+    return precisions, recalls
