@@ -4,6 +4,7 @@ import sklearn.metrics as skmet
 import matplotlib.pyplot as plt
 from scipy.sparse import csgraph
 from scipy.linalg import expm
+from scipy.spatial import distance_matrix
 from tqdm.notebook import tqdm
 from functools import reduce
 import networkx as nx
@@ -257,6 +258,29 @@ def learn_heat(X,
 def create_signal(N=20,p=0.2,tau_ground=[2.5,4],M=100,se=0.1):
     rg = nx.fast_gnp_random_graph(N,p)
     L_ground = nx.laplacian_matrix(rg).toarray()
+    D_ground = D(L_ground, tau_ground)
+    random_atoms = []
+    random_hs = []
+    for m in range(M):
+        random_atoms.append(np.random.choice(D_ground.shape[1], 3, replace=False))
+        random_hs.append(np.random.randn(3))
+    xs = []
+    H_ground = np.zeros((N*len(tau_ground),M))
+    for m, atom in enumerate(random_atoms):
+        xs.append(np.squeeze(D_ground[:,atom]@random_hs[m]))
+        H_ground[atom,m] = random_hs[m]
+    X_clean = np.matrix(xs).T
+    X = X_clean + np.sqrt(se)*np.random.randn(X_clean.shape[0],X_clean.shape[1])
+    return X, L_ground, H_ground, tau_ground
+
+def create_signal2(N=20,p=0.2,tau_ground=[2.5,4],M=100,se=0.1,kappa=0.75,sigma=0.5):
+    # this time creates RBF graph
+    coordinates = np.random.rand(N,2)
+    dist_mat = distance_matrix(coordinates,coordinates)
+    dist_mat[dist_mat<kappa] = 0
+    L_ground = -np.where(dist_mat!=0,np.exp(-dist_mat**2/(2*sigma**2)),0)
+    np.fill_diagonal(L_ground,-np.sum(L_ground,axis=1))
+    ###########################################################
     D_ground = D(L_ground, tau_ground)
     random_atoms = []
     random_hs = []
