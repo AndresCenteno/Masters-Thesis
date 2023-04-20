@@ -296,6 +296,21 @@ def create_signal2(N=20,p=0.2,tau_ground=[2.5,4],M=100,se=0.1,kappa=0.75,sigma=0
     X = X_clean + np.sqrt(se)*np.random.randn(X_clean.shape[0],X_clean.shape[1])
     return X, L_ground, H_ground, tau_ground
 
+def create_deltas(L,taus,se=0):
+    """
+    Inputs:
+    L: Laplacian
+    tau_ground: diffusion processes
+    Output:
+    X: signal of evolved deltas
+    """
+    N = L.shape[0]
+    H = np.eye(N)
+    signals = []
+    X = np.concatenate([expm(-tau*L)@H for tau in taus],axis=1)
+    X += np.random.randn(X.shape[0],X.shape[1])*se
+    return X
+
 def heat_scores(L1,L2,num_trials=10):
     # L1 is the learned Laplacian, L2 the ground one
     precisions = []
