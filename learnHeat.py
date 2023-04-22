@@ -5,9 +5,14 @@ import matplotlib.pyplot as plt
 from scipy.sparse import csgraph
 from scipy.linalg import expm
 from scipy.spatial import distance_matrix
+from scipy.sparse import random
 from tqdm.notebook import tqdm
 from functools import reduce
 import networkx as nx
+import pandas as pd
+import pygsp as pg # this is better than networkx
+import scores_table as scort # this is for main_table.ipynb
+import itertools # this is for combinations of alpha and beta
 
 # Lipshitz constant C1
 def lipschitz_c1(L, tau):
@@ -70,6 +75,11 @@ def soft_threshold(Ht, Lt, X, taut, ct, alpha):
     G = Ht - 1/ct*gradient_z_to_H(Lt, X, Ht, taut)
     Htp1 = np.multiply(np.sign(G), np.maximum(np.abs(G)-alpha/ct, 0))
     return Htp1
+
+def laplacian_to_adjacency(L):
+    W = -np.copy(L)
+    np.fill_diagonal(W,0)
+    return W
 
 def gradient_z_to_H(L, X, H, tau):
     return -2*D(L, tau).T@(X-D(L, tau)@H)
@@ -221,8 +231,10 @@ def learn_heat(X,
     else:
         Htp1 = H0
         
-    pbar = tqdm(range(0, max_iter), desc="Learning progress")
-    cost_bar = tqdm(total=0, position=1, bar_format='{desc}')
+    # pbar = tqdm(range(0, max_iter), desc="Learning progress")
+    pbar = tqdm(range(0, max_iter), desc="Learning progress",disable=True)
+    #cost_bar = tqdm(total=0, position=1, bar_format='{desc}')
+    cost_bar = tqdm(total=0, position=1, bar_format='{desc}',disable=True)
     steps = []
     costs = []
     for t in pbar:
@@ -273,7 +285,7 @@ def create_signal(N=20,p=0.2,tau_ground=[2.5,4],M=100,se=0.1):
     X = X_clean + np.sqrt(se)*np.random.randn(X_clean.shape[0],X_clean.shape[1])
     return X, L_ground, H_ground, tau_ground
 
-def create_signal2(N=20,p=0.2,tau_ground=[2.5,4],M=100,se=0.1,kappa=0.75,sigma=0.5):
+def create_signal2(N=20,tau_ground=[2.5,4],M=100,se=0.1,kappa=0.75,sigma=0.5):
     # this time creates RBF graph
     coordinates = np.random.rand(N,2)
     dist_mat = distance_matrix(coordinates,coordinates)
@@ -311,6 +323,23 @@ def create_deltas(L,taus,se=0):
     X += np.random.randn(X.shape[0],X.shape[1])*se
     return X
 
+def create_deltas2(L,taus,se=0):
+    """
+    Inputs:
+    L: Laplacian
+    tau_ground: diffusion processes
+    Output:
+    X: signal of evolved deltas
+    """
+    N = L.shape[0]
+    H = np.eye(N)
+    Hfull = random(N,N).todense()
+    X = np.concatenate([expm(-tau*L)@H for tau in taus],axis=1)
+    X2 = np.concatenate([expm(-tau*L)@Hfull for tau in taus],axis=1)
+    X3 = np.concatenate([X,X2],axis=1)
+    X3 += np.random.randn(X3.shape[0],X3.shape[1])*se
+    return X3
+
 def heat_scores(L1,L2,num_trials=10):
     # L1 is the learned Laplacian, L2 the ground one
     precisions = []
@@ -340,3 +369,72 @@ def heat_scores(L1,L2,num_trials=10):
         precisions.append(precision)
         recalls.append(recall)
     return precisions, recalls
+
+def heat_list(type, N, se, alpha, beta, max_iter, tau_ground = [1,2.5,4]):
+    """
+    Will generate a random graph of type=type of N vertices, create a signal X
+    given by deltas over the graph of size M=NS and max_iter=40
+    """
+    # create the graph
+    if type==1:
+        _, L, _, _ = create_signal2(N,tau_ground=tau_ground)
+        W = laplacian_to_adjacency(L)
+        G = pg.graphs.Graph(W)
+    elif type==2:
+        G = pg.graphs.ErdosRenyi(N,0.4)
+    elif type==3:
+        G = pg.graphs.BarabasiAlbert(N)
+   
+    L_ground = G.L.todense()
+    # create the signal
+    X = create_deltas2(L_ground, taus=tau_ground, se=se)
+
+    # learn the graph from the signal
+    res = learn_heat(X,tau0=[1,2,3],alpha=alpha,beta=beta,max_iter=max_iter)
+
+    # extract vectorized laplacians
+    ground = -np.tril(L_ground,k=-1).flatten()
+    learned = -np.tril(res["L"],k=-1).flatten()
+
+    # create a list with the scores
+    _, best_precision_recall = scort.threshold_precision_recall(learned,ground)
+    best_precision_recall.append(scort.mean_squared_error(learned,ground))
+    return best_precision_recall
+
+def heat_sim(sim=4, type=1, N=20, se=0, alphav=[0.1,0.05,0.01], betav=[0.05,0.01], max_iter=30, tau_ground = [1,2.5,4]):
+    """
+    Run sim simulations for heat_list and take the average and the standard deviation
+    """
+    observations = []
+    for comb in itertools.product(alphav,betav):
+        for i in range(sim):
+            observations.append(heat_list(type, N, se, comb[0], comb[1], max_iter, tau_ground = [1,2.5,4]))
+    X = np.array(observations)
+    heat_mean = np.mean(X,axis=0)
+    heat_stdev = np.std(X,axis=0)
+    # i need to get the row with the maximum value in column 2 (fmeasure)
+    max_index = np.argmax(X[:, 2])
+    heat_max = X[max_index,:]
+    return heat_mean, heat_stdev, heat_max
+
+def heat_master(N,max_iter):
+    """
+    Here we cycle in type and se and we need to 
+    """
+    print("entered function")
+    type = [1,2,3]
+    se = [0,0.1,0.5]
+    data = ['Graph Type','\sigma noise','Information','Precision','Recall','F score','NMI','l2error']
+    df = pd.DataFrame(columns=data)
+    for comb in itertools.product(type,se):
+        # here we do our stuff
+        print("type is {}, standard deviation is {}, here we go".format(comb[0],comb[1]))
+        mean, stdev, maxx = heat_sim(type=comb[0],N=N,se=comb[1],max_iter=max_iter)
+        data1 = {'Graph Type':comb[0],'\sigma noise':comb[1],'Information':'Mean','Precision':mean[0],'Recall':mean[1],'F score':mean[2],'NMI':mean[3],'l2error':mean[4]}
+        data2 = {'Graph Type':comb[0],'\sigma noise':comb[1],'Information':'Stdev','Precision':stdev[0],'Recall':stdev[1],'F score':stdev[2],'NMI':stdev[3],'l2error':stdev[4]}
+        data3 = {'Graph Type':comb[0],'\sigma noise':comb[1],'Information':'Max','Precision':maxx[0],'Recall':maxx[1],'F score':maxx[2],'NMI':maxx[3],'l2error':maxx[4]}
+        df.loc[len(df)] = data1
+        df.loc[len(df)] = data2
+        df.loc[len(df)] = data3
+
+    return df

@@ -1,0 +1,10 @@
+Graph Type,\sigma noise,Information,Precision,Recall,F score,NMI,l2error
+RBF,0.0,Max,1.0,0.79,0.88,0.54,0.1
+RBF,0.1,Max,1.0,0.7,0.82,0.54,0.07
+RBF,0.5,Max,0.57,0.44,0.5,0.31,0.08
+Erdös Réyni,0.0,Max,1.0,0.65,0.79,0.57,0.08
+Erdös Réyni,0.1,Max,0.74,0.59,0.65,0.24,0.18
+Erdös Réyni,0.5,Max,0.62,0.38,0.48,0.11,0.22
+Barabási Albert,0.0,Max,1.0,0.9,0.95,0.86,0.01
+Barabási Albert,0.1,Max,0.78,0.58,0.67,0.38,0.07
+Barabási Albert,0.5,Max,0.56,0.36,0.43,0.14,0.13
