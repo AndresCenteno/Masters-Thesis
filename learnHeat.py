@@ -81,6 +81,11 @@ def laplacian_to_adjacency(L):
     np.fill_diagonal(W,0)
     return W
 
+def laplacian_to_vec(L):
+    W = laplacian_to_adjacency(L)
+    vec = np.tril(W,k=-1).flatten()
+    return vec
+
 def gradient_z_to_H(L, X, H, tau):
     return -2*D(L, tau).T@(X-D(L, tau)@H)
 
@@ -267,7 +272,7 @@ def learn_heat(X,
     
     return result
 
-def create_signal(N=20,p=0.2,tau_ground=[2.5,4],M=100,se=0.1):
+def create_signal(N=20,p=0.2,tau_ground=[2.5,4],M=100,se=0):
     rg = nx.fast_gnp_random_graph(N,p)
     L_ground = nx.laplacian_matrix(rg).toarray()
     D_ground = D(L_ground, tau_ground)
@@ -285,7 +290,7 @@ def create_signal(N=20,p=0.2,tau_ground=[2.5,4],M=100,se=0.1):
     X = X_clean + np.sqrt(se)*np.random.randn(X_clean.shape[0],X_clean.shape[1])
     return X, L_ground, H_ground, tau_ground
 
-def create_signal2(N=20,tau_ground=[2.5,4],M=100,se=0.1,kappa=0.75,sigma=0.5):
+def create_signal2(N=20,tau_ground=[2.5,4],M=100,se=0,kappa=0.75,sigma=0.5):
     # this time creates RBF graph
     coordinates = np.random.rand(N,2)
     dist_mat = distance_matrix(coordinates,coordinates)
@@ -438,3 +443,87 @@ def heat_master(N,max_iter):
         df.loc[len(df)] = data3
 
     return df
+
+def filter_by_edges(L,N):
+    # Assume L is your Laplacian matrix
+    # Convert L to a weighted adjacency matrix W
+    n_nodes = L.shape[0]
+    D = np.diag(np.sum(L, axis=1))
+    W = D - L
+
+    # Sort the edges of the graph by weight
+    sorted_edges = np.argsort(W.ravel())[::-1]
+
+    # Set the weights of the first N edges to their original values, and set the rest to zero
+    keep_edges = sorted_edges[:N]
+    W_new = np.zeros_like(W)
+    W_new.ravel()[keep_edges] = W.ravel()[keep_edges]
+
+    # Construct a new Laplacian matrix L_new using the modified weighted adjacency matrix W
+    return W_new
+
+##################################################################################
+
+def heat_persistent(L,n_trials=1000):
+    """
+    This clumsy function tries to return the most persistant topology over the thresholds
+    """
+    Lnew = np.copy(L)
+    times = np.linspace(0,1,n_trials)
+    changed = np.zeros(n_trials)
+    current = heat_numedges(Lnew)
+    counter = 0
+    for t in range(n_trials):
+        Lnew = heat_threshold(L,times[t])
+        new_edges = heat_numedges(Lnew)
+        counter +=1
+        if new_edges != current:
+            changed[t] += counter
+            current = new_edges
+            counter = 0
+
+
+    # get boolean array indicating non-zero elements
+    non_zero = changed != 0
+
+    # get indices of non-zero elements that are not the first or last
+    valid_idx = np.where(non_zero & (np.arange(len(changed)) != 0) & (np.arange(len(changed)) != len(changed) - 1))[0]
+
+    # get index of largest non-zero element that satisfies conditions
+    result = valid_idx[np.argmax(changed[valid_idx])]
+
+    optimal_threshold = heat_threshold(L,times[result-1])
+    # compute optimal threshold
+    return optimal_threshold, changed
+
+def heat_threshold(L,thresh,load=False):
+    """
+    Given Laplacian, set to 0 all off-diagonal entries below a certain threshold
+    If load is set to true then load all the lost weights to the existing weights
+    """
+    Lcopy = np.copy(L)
+    D = np.diag(np.diag(Lcopy))
+    np.fill_diagonal(Lcopy,0)
+    total_weight = np.sum(np.sum(Lcopy[Lcopy > -thresh]))
+    Lcopy[Lcopy > -thresh] = 0
+    # need number of non-thresholed entries
+    if load==True:
+        L2copy = np.copy(Lcopy)
+        L2copy[L2copy < 0] = -1
+        outside_thresh = np.sum(np.sum(L2copy[L2copy<0]))
+        Lcopy[Lcopy < 0] -= total_weight/outside_thresh
+
+    return Lcopy+D
+
+def heat_numedges(L):
+    Lcopy = np.copy(L)
+    Lcopy[Lcopy < 0] = -1
+    return -np.sum(np.sum(Lcopy[Lcopy<0]))/2
+
+##########################################################
+# THE NORMALIZED GRAPHS
+def heat_graph_ER(N,p=0.3):
+    graph = nx.erdos_renyi_graph(N,p)
+    L = nx.laplacian_matrix(graph).toarray()
+    L = L/np.trace(L)*N
+    return L

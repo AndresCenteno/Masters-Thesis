@@ -4,6 +4,7 @@ This is to be called with the already vectorized lower triangular Laplacians
 
 import numpy as np
 import warnings
+import learnHeat as lh
 from sklearn.metrics.cluster import normalized_mutual_info_score
 
 def contingency_table(x, y):
@@ -46,6 +47,14 @@ def precision_recall(x, y):
     recall = true_positives / (true_positives + false_negatives)
     f_score = 2/  (1 / precision + 1 / recall)
     return precision, recall, f_score
+
+def scores(L1,L2):
+    V1 = lh.laplacian_to_vec(L1)
+    V2 = lh.laplacian_to_vec(L2)
+
+    scores = precision_recall(V1,V2)
+    scores = scores[-1]
+    return scores
 
 def threshold_precision_recall(x, y, n_thresholds=30):
     """
