@@ -39,7 +39,7 @@ def descent_condition(X, Ltp1, Lt, Htp1, taut, c2):
     condition = left <= right
     return condition, (left,right)
 
-def back_tracking(X, Lt, Htp1, taut, gamma2, alpha, beta, verbose):
+def back_tracking(X, L_ground, Lt, Htp1, taut, gamma2, alpha, beta, verbose):
     N = X.shape[0]
     S = len(taut)
     eta = 1.1
@@ -50,7 +50,7 @@ def back_tracking(X, Lt, Htp1, taut, gamma2, alpha, beta, verbose):
     while cond == False:
         c2 = (eta**k)*c2
         dt = gamma2*c2
-        Ltp1 = admm(X, Lt, gradient, Htp1, taut, dt, beta, verbose)
+        Ltp1 = admm(X, L_ground, Lt, gradient, Htp1, taut, dt, beta, verbose)
         k += 1
         cond, detail = descent_condition(X = X, Ltp1 = Ltp1, Lt = Lt, Htp1 = Htp1, 
                                          taut = taut, c2 = c2)
@@ -139,6 +139,7 @@ def dtrAeLdL(L, A):
     return Evec@(np.multiply(Evec.T@A.T@Evec,B))@Evec.T
 
 def admm(X, Lt, gradient, Htp1, taut, dt, beta, verbose):
+    ##
     S = len(taut)
     # variable
     L = cp.Variable(Lt.shape)
@@ -147,6 +148,10 @@ def admm(X, Lt, gradient, Htp1, taut, dt, beta, verbose):
     constraints = [cp.trace(L)== N, L.T==L, L@np.ones((N,1))==np.zeros((N,1))]
     for i in range(N-1):
         constraints += [L[i][i+1:]<=0]
+        for j in range(N-1):
+            if i!=j:
+                if L_ground[i,j] == 0:
+                    constraints += [L[i][j]==0]
     # objective
     obj = cp.Minimize(cp.trace(gradient.T@(L-Lt)) \
                       + dt/2*(cp.norm(L-Lt, 'fro')**2) + beta*(cp.norm(L, 'fro')**2))
@@ -191,7 +196,8 @@ def hessian_Z_to_tau(X, L, H, tau):
 def cal_cost(X, L, H, tau, alpha, beta):
     return Z(X, L, H, tau) + alpha*np.sum(np.abs(H)) + beta*(np.linalg.norm(L,'fro')**2)
 
-def learn_heat(X, 
+def learn_heat(X,
+               L_ground, 
                L0 = np.array([]), 
                H0 = np.array([]), 
                tau0 = [1,2,3], 
@@ -254,7 +260,7 @@ def learn_heat(X,
         cost_bar.set_description_str(f"COST: {'{:0.5f}'.format(cal_cost(X, Lt, Htp1, taut, alpha, beta))} (H updated)")
         # Step to update L and D
         # Update L
-        Ltp1 = back_tracking(X, Lt, Htp1, taut, gamma2, alpha, beta, verbose)
+        Ltp1 = back_tracking(X, L_ground, Lt, Htp1, taut, gamma2, alpha, beta, verbose)
         cost_bar.set_description_str(f"COST: {'{:0.5f}'.format(cal_cost(X, Ltp1, Htp1, taut, alpha, beta))} (L updated)")
         
         ## Step to update tau and D
@@ -546,9 +552,3 @@ def heat_graph_ER(N,p=0.3):
 def heat_graph_RBF(N,kappa=0.75,sigma=0.5):
     _, L, _, _ = create_signal2(N,kappa=kappa,sigma=sigma)
     return normalized_L(L)
-
-def heat_graph_BA(N):
-    graph = pg.graphs.BarabasiAlbert(N)
-    L = (graph.L).todense()
-    L = L/np.trace(L)*N
-    return L
