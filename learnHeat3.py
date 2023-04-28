@@ -54,6 +54,7 @@ def back_tracking(X, L_ground, Lt, Htp1, taut, gamma2, alpha, beta, verbose):
         k += 1
         cond, detail = descent_condition(X = X, Ltp1 = Ltp1, Lt = Lt, Htp1 = Htp1, 
                                          taut = taut, c2 = c2)
+        
     return Ltp1
 
 # Lipshitz 
@@ -138,7 +139,7 @@ def dtrAeLdL(L, A):
     # derivative with respect to L
     return Evec@(np.multiply(Evec.T@A.T@Evec,B))@Evec.T
 
-def admm(X, Lt, gradient, Htp1, taut, dt, beta, verbose):
+def admm(X, L_ground, Lt, gradient, Htp1, taut, dt, beta, verbose):
     ##
     S = len(taut)
     # variable
@@ -147,11 +148,12 @@ def admm(X, Lt, gradient, Htp1, taut, dt, beta, verbose):
     # constraints
     constraints = [cp.trace(L)== N, L.T==L, L@np.ones((N,1))==np.zeros((N,1))]
     for i in range(N-1):
-        constraints += [L[i][i+1:]<=0]
         for j in range(N-1):
             if i!=j:
                 if L_ground[i,j] == 0:
-                    constraints += [L[i][j]==0]
+                    constraints += [L[i,j]==0]
+                else:
+                    constraints += [L[i,j]<=0]
     # objective
     obj = cp.Minimize(cp.trace(gradient.T@(L-Lt)) \
                       + dt/2*(cp.norm(L-Lt, 'fro')**2) + beta*(cp.norm(L, 'fro')**2))
@@ -160,6 +162,11 @@ def admm(X, Lt, gradient, Htp1, taut, dt, beta, verbose):
     prob.solve(verbose=verbose, solver=cp.SCS, scale = 1000, use_indirect = False)
     if L.value is None:
         prob.solve(verbose=verbose, solver=cp.MOSEK)
+    num_zeros_L = np.count_nonzero(L_ground == 0) # count the number of zero entries in L
+    shared_zeros = np.count_nonzero((L_ground == 0) & (L.value == 0)) # count the number of zero entries that are shared by both matrices
+    percentage = (shared_zeros / num_zeros_L) * 100 # compute the percentage
+
+    print(f"The percentage of zero entries in L that are also zero in L2 is {percentage:.2f}%")
     return L.value
 
 def Z(X, L, H, tau):
@@ -243,9 +250,9 @@ def learn_heat(X,
         Htp1 = H0
         
     # pbar = tqdm(range(0, max_iter), desc="Learning progress")
-    pbar = tqdm(range(0, max_iter), desc="Learning progress",disable=True)
+    pbar = tqdm(range(0, max_iter), desc="Learning progress")
     #cost_bar = tqdm(total=0, position=1, bar_format='{desc}')
-    cost_bar = tqdm(total=0, position=1, bar_format='{desc}',disable=True)
+    cost_bar = tqdm(total=0, position=1, bar_format='{desc}')
     steps = []
     costs = []
     for t in pbar:
