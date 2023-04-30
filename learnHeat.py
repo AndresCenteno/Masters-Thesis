@@ -83,8 +83,13 @@ def laplacian_to_adjacency(L):
 
 def laplacian_to_vec(L):
     W = laplacian_to_adjacency(L)
-    vec = np.tril(W,k=-1).flatten()
-    return vec
+    W[W==0] = 5
+    n = W.shape[0]
+    vec = np.tril(W,k=-1)
+    # esto tampoco puto funciona obviamente porque puede haber 0s arriba madre mia
+    vec2 = vec[vec!=0].flatten()
+    vec2[vec2==5] = 0
+    return vec2
 
 def gradient_z_to_H(L, X, H, tau):
     return -2*D(L, tau).T@(X-D(L, tau)@H)
@@ -482,7 +487,6 @@ def heat_persistent(L,n_trials=1000,reverse=False):
             current = new_edges
             counter = 0
 
-
     # get boolean array indicating non-zero elements
     non_zero = changed != 0
 
@@ -506,6 +510,56 @@ def heat_persistent(L,n_trials=1000,reverse=False):
     optimal_threshold = heat_threshold(L,times[closest_argmin-1])
     # compute optimal threshold
     return optimal_threshold, changed
+
+from collections import Counter
+
+def filter_least_persistent(L,softness=10,iter=0,reg=-1):
+    if reg==-1:
+        reg = L.shape[0]
+    iter += 1
+    # Roundoff error thresholding
+    L[abs(L)<1e-5] = 0
+    """
+    This function takes a Laplacian matrix, which has non-negative diagonal entries
+    and non-positive off-diagonal entries and it is symmetric, and for a threshold
+    t in np.linspace(smallest_weight,biggest_weight,n_trials,softness) computes how
+    many edges are deleted when thresholding the weights from t to the next t,
+    then takes the t for which in one step more edges where deleted and returns
+    that t, the thresholded matrix and how many edges where deleted 
+    """
+    W = laplacian_to_vec(L)
+    W_aux = np.copy(W)
+    min_weight = np.min(W[W!=0])
+    max_weight = np.max(W[W!=0])
+    thresh = np.linspace(min_weight,max_weight,softness)
+    jumps = np.zeros(softness)
+    actual = np.count_nonzero(W)
+    # take mean!!
+    W_mean = np.power(W_aux,1/reg)/len(W_aux)
+    dist2mean = np.square(W_aux - W_mean)
+    argmean = np.argmin(dist2mean)
+    for i in range(softness):
+        W[W<thresh[i]] = 0
+        next = np.count_nonzero(W)
+        # we want to incentivize being near the mean
+        jumps[i] = (actual - next)*(1+abs(i-argmean)**reg)
+        actual = next
+    # check is the maximum is unique
+    max_elem = np.max(jumps)
+    count = Counter(jumps)
+    if iter > 10:
+        return "Bro you did 10 iterations"
+    if count[max_elem] > 1:
+        return filter_least_persistent(L,softness + 10,iter)
+    else:
+        t = thresh[np.argmax(jumps) - 1]
+        W_aux[W_aux<t] = 0
+        L_threshold = np.copy(L)
+        L_threshold[L_threshold>-t] = 0
+        L_threshold += np.diag(np.diag(L))
+        edges = np.max(jumps)
+        return t, L_threshold, edges
+
 
 def heat_threshold(L,thresh,load=False):
     """
@@ -552,3 +606,12 @@ def heat_graph_BA(N):
     L = (graph.L).todense()
     L = L/np.trace(L)*N
     return L
+
+def filter_mean(L):
+    aux = np.tril(L,k=-1)
+    L2 = np.copy(L)
+    n_aux = np.count_nonzero(aux)
+    mean = np.sum(aux)/n_aux
+    L2[L2>mean] = 0
+    L2 += np.diag(L)
+    return L2

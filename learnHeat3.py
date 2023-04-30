@@ -50,7 +50,15 @@ def back_tracking(X, L_ground, Lt, Htp1, taut, gamma2, alpha, beta, verbose):
     while cond == False:
         c2 = (eta**k)*c2
         dt = gamma2*c2
-        Ltp1 = admm(X, L_ground, Lt, gradient, Htp1, taut, dt, beta, verbose)
+        try:
+            Ltp1 = admm(X, L_ground, Lt, gradient, Htp1, taut, dt, beta, verbose)
+        except Exception as e:
+            if str(e).startswith('rescode.err_lower_bound_is_a_nan(1390)'):
+                # Handle the error
+                Ltp1 = Lt
+            else:
+                # Re-raise the error
+                raise e
         k += 1
         cond, detail = descent_condition(X = X, Ltp1 = Ltp1, Lt = Lt, Htp1 = Htp1, 
                                          taut = taut, c2 = c2)
@@ -139,8 +147,32 @@ def dtrAeLdL(L, A):
     # derivative with respect to L
     return Evec@(np.multiply(Evec.T@A.T@Evec,B))@Evec.T
 
+def cover_zeros(L_ground, percentage):
+    """
+    This function will cover a percentage of zeros in L_ground by 1 so it is
+    not included as a priori knowledge
+    """
+    L_covered = np.copy(L_ground)
+    num_zeros = np.count_nonzero(L_covered == 0)
+    num_to_cover = int(np.ceil(percentage * num_zeros))
+    zero_indices = np.argwhere(L_covered == 0)
+    np.random.shuffle(zero_indices)
+    for i in range(num_to_cover):
+        idx = tuple(zero_indices[i])
+        L_covered[idx] = 1
+    return L_covered
+
+def compare_zeros(L_learned, L_ground):
+    """
+    This function sees if learned negatives is true negatives
+    """
+    mask = (L_ground == 0)
+    all_negatives = np.count_nonzero(mask)
+    true_negatives = np.logical_and(L_learned == 0, mask)
+    num_true_negatives = np.count_nonzero(true_negatives)
+    return num_true_negatives/all_negatives
+
 def admm(X, L_ground, Lt, gradient, Htp1, taut, dt, beta, verbose):
-    ##
     S = len(taut)
     # variable
     L = cp.Variable(Lt.shape)
@@ -148,13 +180,12 @@ def admm(X, L_ground, Lt, gradient, Htp1, taut, dt, beta, verbose):
     # constraints
     constraints = [cp.trace(L)== N, L.T==L, L@np.ones((N,1))==np.zeros((N,1))]
     for i in range(N-1):
-        for j in range(N-1):
-            if i!=j:
-                if L_ground[i,j] == 0:
-                    constraints += [L[i,j]==0]
-                else:
-                    constraints += [L[i,j]<=0]
+        constraints += [L[i][i+1:]<=0]
     # objective
+    for i in range(N):
+        for j in range(N):
+            if L_ground[i,j] == 0:
+                constraints += [L[i,j] == 0]
     obj = cp.Minimize(cp.trace(gradient.T@(L-Lt)) \
                       + dt/2*(cp.norm(L-Lt, 'fro')**2) + beta*(cp.norm(L, 'fro')**2))
     # solve problem
@@ -162,11 +193,6 @@ def admm(X, L_ground, Lt, gradient, Htp1, taut, dt, beta, verbose):
     prob.solve(verbose=verbose, solver=cp.SCS, scale = 1000, use_indirect = False)
     if L.value is None:
         prob.solve(verbose=verbose, solver=cp.MOSEK)
-    num_zeros_L = np.count_nonzero(L_ground == 0) # count the number of zero entries in L
-    shared_zeros = np.count_nonzero((L_ground == 0) & (L.value == 0)) # count the number of zero entries that are shared by both matrices
-    percentage = (shared_zeros / num_zeros_L) * 100 # compute the percentage
-
-    print(f"The percentage of zero entries in L that are also zero in L2 is {percentage:.2f}%")
     return L.value
 
 def Z(X, L, H, tau):
@@ -250,9 +276,9 @@ def learn_heat(X,
         Htp1 = H0
         
     # pbar = tqdm(range(0, max_iter), desc="Learning progress")
-    pbar = tqdm(range(0, max_iter), desc="Learning progress")
+    pbar = tqdm(range(0, max_iter), desc="Learning progress",disable=True)
     #cost_bar = tqdm(total=0, position=1, bar_format='{desc}')
-    cost_bar = tqdm(total=0, position=1, bar_format='{desc}')
+    cost_bar = tqdm(total=0, position=1, bar_format='{desc}',disable=True)
     steps = []
     costs = []
     for t in pbar:

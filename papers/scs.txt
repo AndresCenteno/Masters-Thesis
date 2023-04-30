@@ -1,0 +1,1 @@
+SCS applies Douglas-Rachford splitting to a homogeneous embedding of the quadratic cone program. 
