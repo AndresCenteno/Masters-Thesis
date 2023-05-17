@@ -78,10 +78,22 @@ def threshold_precision_recall(x, y, n_thresholds=30):
 
     return scores, max(scores, key=lambda x: x[2])
 
-def mean_squared_error(x, y):
+def mean_squared_error(x, y, translate=False):
     """
     Computes the mean squared error (MSE) between two vectors x and y.
     """
+    if translate==True:
+        x = lh.laplacian_to_vec(x)
+        y = lh.laplacian_to_vec(y)
     mse = np.mean((x - y) ** 2)
     
     return mse
+
+def L2_error(x, y):
+    return np.linalg.norm(x-y,"fro")
+
+def both_scores(learned,ground):
+    A = np.zeros([2])
+    A[0] = scores(learned,ground)
+    A[1] = L2_error(learned,ground)
+    return A

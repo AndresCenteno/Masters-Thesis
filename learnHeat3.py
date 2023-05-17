@@ -50,19 +50,14 @@ def back_tracking(X, L_ground, Lt, Htp1, taut, gamma2, alpha, beta, verbose):
     while cond == False:
         c2 = (eta**k)*c2
         dt = gamma2*c2
-        try:
-            Ltp1 = admm(X, L_ground, Lt, gradient, Htp1, taut, dt, beta, verbose)
-        except Exception as e:
-            if str(e).startswith('rescode.err_lower_bound_is_a_nan(1390)'):
-                # Handle the error
-                Ltp1 = Lt
-            else:
-                # Re-raise the error
-                raise e
+        Ltp1 = admm(X, Lt, gradient, Htp1, taut, dt, beta, verbose)
         k += 1
         cond, detail = descent_condition(X = X, Ltp1 = Ltp1, Lt = Lt, Htp1 = Htp1, 
                                          taut = taut, c2 = c2)
-        
+    for i in range(N):
+        for j in range(N):
+            if L_ground[i,j] == 0:
+                Ltp1[i,j] = 0
     return Ltp1
 
 # Lipshitz 
@@ -139,7 +134,7 @@ def dtrAeLdL(L, A):
     B = np.zeros(L.shape)
     for i in range(B.shape[0]):
         for j in range(B.shape[1]):
-            if i == j:
+            if Eval[i] == Eval[j]:
                 B[i,i] = np.exp(Eval[i])
             else:
                 B[i,j] = (np.exp(Eval[i])-np.exp(Eval[j])) / (Eval[i]-Eval[j])
@@ -172,7 +167,7 @@ def compare_zeros(L_learned, L_ground):
     num_true_negatives = np.count_nonzero(true_negatives)
     return num_true_negatives/all_negatives
 
-def admm(X, L_ground, Lt, gradient, Htp1, taut, dt, beta, verbose):
+def admm(X, Lt, gradient, Htp1, taut, dt, beta, verbose):
     S = len(taut)
     # variable
     L = cp.Variable(Lt.shape)
@@ -182,10 +177,7 @@ def admm(X, L_ground, Lt, gradient, Htp1, taut, dt, beta, verbose):
     for i in range(N-1):
         constraints += [L[i][i+1:]<=0]
     # objective
-    for i in range(N):
-        for j in range(N):
-            if L_ground[i,j] == 0:
-                constraints += [L[i,j] == 0]
+
     obj = cp.Minimize(cp.trace(gradient.T@(L-Lt)) \
                       + dt/2*(cp.norm(L-Lt, 'fro')**2) + beta*(cp.norm(L, 'fro')**2))
     # solve problem

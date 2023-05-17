@@ -468,8 +468,30 @@ def filter_by_edges(L,N):
     return W_new
 
 ##################################################################################
+"""
+PERSISTENCY PART
+"""
 
-def heat_persistent(L,n_trials=1000,reverse=False):
+def weight_clusters(L,window=0.1):
+    max_weight = np.min(L)
+    Lnorm = -L/max_weight
+    Lnorm[abs(Lnorm)<0.1] = 0
+    results = np.zeros([L.shape[0]**2,2])
+    i = 0
+    while np.min(Lnorm) != 0 and i < L.shape[0]**2:
+        left = np.max(Lnorm[Lnorm<0])
+        edges_before = heat_numedges(heat_threshold(Lnorm,-left))
+        edges_after = heat_numedges(heat_threshold(Lnorm,-left+window))
+        difference = edges_before-edges_after
+        results[i,0] = left
+        results[i,1] = difference
+        Lnorm = heat_threshold(Lnorm,-left+0.0000001)
+        i = i + 1
+    arg_i = np.argmax(results[:,1])
+    thresh = results[arg_i,0]
+    return heat_threshold(L,thresh*max_weight)
+
+def heat_persistent(L,n_trials=1000,reverse=True):
     """
     This clumsy function tries to return the most persistant topology over the thresholds
     """
@@ -509,10 +531,11 @@ def heat_persistent(L,n_trials=1000,reverse=False):
             closest_argmin = 0
     optimal_threshold = heat_threshold(L,times[closest_argmin-1])
     # compute optimal threshold
-    return optimal_threshold, changed
+    return optimal_threshold
 
 from collections import Counter
 
+# esta es mi función importante
 def filter_least_persistent(L,softness=10,iter=0,reg=-1):
     if reg==-1:
         reg = L.shape[0]
@@ -560,6 +583,10 @@ def filter_least_persistent(L,softness=10,iter=0,reg=-1):
         edges = np.max(jumps)
         return t, L_threshold, edges
 
+def heat_quantile(L,q):
+    non_null = L[L<0]
+    q = -np.quantile(non_null,q)
+    return heat_threshold(L,q)
 
 def heat_threshold(L,thresh,load=False):
     """
@@ -601,8 +628,9 @@ def heat_graph_RBF(N,kappa=0.75,sigma=0.5):
     _, L, _, _ = create_signal2(N,kappa=kappa,sigma=sigma)
     return normalized_L(L)
 
-def heat_graph_BA(N):
-    graph = pg.graphs.BarabasiAlbert(N)
+def heat_graph_BA(N,m=1):
+    # defaults are m=1 m0=1
+    graph = pg.graphs.BarabasiAlbert(N,m)
     L = (graph.L).todense()
     L = L/np.trace(L)*N
     return L
