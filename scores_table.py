@@ -42,9 +42,14 @@ def precision_recall(x, y):
     true_positives = np.sum(np.logical_and(x, y))
     false_positives = np.sum(np.logical_and(np.logical_not(x), y))
     false_negatives = np.sum(np.logical_and(x, np.logical_not(y)))
-    
-    precision = true_positives / (true_positives + false_positives)
-    recall = true_positives / (true_positives + false_negatives)
+    if true_positives+false_positives == 0:
+        precision = 1
+    else:
+        precision = true_positives / (true_positives + false_positives)
+    if true_positives+false_negatives == 0:
+        recall = true_positives / (true_positives + false_negatives)
+    else:
+        recall = 1
     f_score = 2/  (1 / precision + 1 / recall)
     return precision, recall, f_score
 

@@ -473,9 +473,10 @@ PERSISTENCY PART
 """
 
 def weight_clusters(L,window=0.1):
+    t = 4/L.shape[0]
     max_weight = np.min(L)
     Lnorm = -L/max_weight
-    Lnorm[abs(Lnorm)<0.1] = 0
+    Lnorm[abs(Lnorm)<t] = 0
     results = np.zeros([L.shape[0]**2,2])
     i = 0
     while np.min(Lnorm) != 0 and i < L.shape[0]**2:
@@ -624,8 +625,10 @@ def heat_graph_ER(N,p=0.3):
     L = L/np.trace(L)*N
     return L
 
-def heat_graph_RBF(N,kappa=0.75,sigma=0.5):
+def heat_graph_RBF(N,kappa=0.75,sigma=0.5,trick=False):
     _, L, _, _ = create_signal2(N,kappa=kappa,sigma=sigma)
+    if trick==True:
+        return L
     return normalized_L(L)
 
 def heat_graph_BA(N,m=1):
